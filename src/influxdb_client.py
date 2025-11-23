@@ -45,16 +45,16 @@ class InfluxDBManager:
                 url=config.influx_url,
                 token=config.influx_token,
                 org=config.influx_org,
-                timeout=30_000,  # 30 seconds
+                timeout=config.influx_timeout * 1000,  # Convert to milliseconds
                 retries=3
             )
             
             # Configure write API with batching for better performance
             write_options = WriteOptions(
                 batch_size=config.batch_size,
-                flush_interval=10_000,  # 10 seconds
-                jitter_interval=2_000,   # 2 seconds
-                retry_interval=5_000,    # 5 seconds
+                flush_interval=5_000,   # 5 seconds (faster flushing)
+                jitter_interval=1_000,   # 1 second (reduce jitter)
+                retry_interval=2_000,    # 2 seconds (faster retries)
                 max_retries=3
             )
             
@@ -214,25 +214,13 @@ class InfluxDBManager:
             if record.value is not None and self._is_valid_value(record.value):
                 point.field("value", float(record.value))
                 fields_added += 1
-            
-            # Add sum for cumulative sensors (energy, data usage)
-            if record.sum_value is not None and self._is_valid_value(record.sum_value):
-                if entity.category in [SensorCategory.ENERGY, SensorCategory.NETWORK]:
-                    point.field("sum", float(record.sum_value))
-                    fields_added += 1
-            
-            # Add statistical fields if available and meaningful
-            if record.mean is not None and self._is_valid_value(record.mean):
-                point.field("mean", float(record.mean))
+            # Fallback: use mean as value for statistics data when state is NULL
+            elif record.mean is not None and self._is_valid_value(record.mean):
+                point.field("value", float(record.mean))
                 fields_added += 1
             
-            if record.min_value is not None and self._is_valid_value(record.min_value):
-                point.field("min", float(record.min_value))
-                fields_added += 1
-            
-            if record.max_value is not None and self._is_valid_value(record.max_value):
-                point.field("max", float(record.max_value))
-                fields_added += 1
+            # NOTE: Removed statistical fields (mean, min, max, sum) for consistency with HA native integration
+            # HA only writes 'value' field, so we match that schema for unified querying
             
             # Only return point if we have at least one field
             if fields_added == 0:

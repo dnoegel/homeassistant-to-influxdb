@@ -12,7 +12,7 @@ Need robust handling of missing data, timestamps, and data quality issues.
 - **Skip null/NaN values**: Don't interpolate, preserve data gaps
 - **Log missing data patterns**: Track entities with frequent gaps
 - **Validate data ranges**: Sanity checks for extreme values
-- **Preserve HA aggregations**: Use mean/min/max from HA when available
+- **Unified field strategy**: Export only `value` field for HA schema consistency
 
 ### Timestamp Strategy
 - **Preserve original timestamps**: Keep HA's `start_ts` values
@@ -47,3 +47,4 @@ QUALITY_RULES = {
 - 2025-11-22: Processing metrics and progress tracking implemented
 - 2025-11-22: Tested with real HA data - 100% success rate on sample batches
 - 2025-11-22: Quality rules validated for all 8 sensor categories
+- 2025-11-23: Simplified to single `value` field for HA compatibility

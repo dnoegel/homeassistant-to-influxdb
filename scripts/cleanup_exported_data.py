@@ -71,8 +71,9 @@ def delete_migration_data():
                     print(f"❌ Could not count data: {e}")
                     print("Proceeding anyway...")
                 
-                # Smart deletion: Use InfluxDB delete API directly with large time range
+                # Smart deletion with timeout handling
                 print("🗑️  Deleting migration data...")
+                print(f"   Using timeout: {config.influx_timeout} seconds")
                 
                 try:
                     delete_api = influx.client.delete_api()

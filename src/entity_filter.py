@@ -159,9 +159,10 @@ class EntityFilter:
             if indicator in entity_id:
                 return False, f"Status indicator: {indicator}"
         
-        # Skip entities without meaningful data
-        if not metadata.has_mean and not metadata.has_sum and metadata.unit_of_measurement is None:
-            return False, "No meaningful statistical data"
+        # Only skip entities that clearly have no time-series value
+        # (entities with supported units/domains are valuable even without has_mean/has_sum flags)
+        if metadata.unit_of_measurement is None and category == SensorCategory.EXCLUDED:
+            return False, "No unit and no supported category"
         
         return True, f"Included as {category.value}"
     

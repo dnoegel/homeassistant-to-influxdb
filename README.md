@@ -137,7 +137,7 @@ The exporter intelligently categorizes entities into 8 sensor types:
 ### InfluxDB Schema
 
 **Tags**: `entity_id`, `sensor_type`, `unit_of_measurement`, `domain`
-**Fields**: `mean`, `min`, `max`, `sum`, `state`
+**Fields**: `value` (consistent with HA native integration)
 **Timestamp**: Preserved from Home Assistant (`start_ts`)
 
 ### Dual-Bucket Architecture
@@ -147,7 +147,7 @@ The exporter implements a smart two-bucket strategy for optimal storage and perf
 #### **Recent Data Bucket** (`homeassistant-recent`)
 - **Retention**: 90 days
 - **Purpose**: High-resolution data for dashboards and real-time analysis
-- **Data**: Raw statistical records with all fields (mean, min, max, sum)  
+- **Data**: Time-series values (value field only, matching HA schema)  
 - **Update frequency**: Continuous from migration + live HA data
 
 #### **Historical Bucket** (`homeassistant-historical`) 
@@ -171,8 +171,8 @@ from(bucket: "homeassistant-recent")
 
 **Task Schedule**: 
 - **Energy sensors** (kWh): `last()` aggregation (preserves cumulative)
-- **Power sensors** (W): `mean()` aggregation (average consumption)
-- **Temperature sensors** (°C): `mean()` aggregation (environmental trends)
+- **Power sensors** (W): `mean()` aggregation (average consumption over time window)
+- **Temperature sensors** (°C): `mean()` aggregation (environmental trends over time window)
 - **Other sensors**: Appropriate aggregation based on data type
 
 **Benefits**:

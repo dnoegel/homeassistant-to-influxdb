@@ -118,7 +118,6 @@ class DatabaseInterface:
                 LEFT JOIN states_meta stm ON sm.statistic_id = stm.entity_id
                 LEFT JOIN states s ON stm.metadata_id = s.metadata_id AND s.attributes_id IS NOT NULL
                 LEFT JOIN state_attributes sa ON s.attributes_id = sa.attributes_id
-                ORDER BY sm.statistic_id
                 """
                 
                 logger.info("Join path: statistics_meta -> states_meta -> states(metadata_id) -> state_attributes")
@@ -129,7 +128,6 @@ class DatabaseInterface:
                 SELECT id, statistic_id, source, unit_of_measurement, has_mean, has_sum, 
                        name, mean_type, unit_class, name, NULL, NULL
                 FROM statistics_meta
-                ORDER BY statistic_id
                 """
             
             cursor.execute(query)

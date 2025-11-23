@@ -94,11 +94,16 @@ class Config:
         """Log file path (optional)."""
         return os.getenv('LOG_FILE')
     
+    @property
+    def influx_timeout(self) -> int:
+        """InfluxDB operation timeout in seconds."""
+        return int(os.getenv('INFLUX_TIMEOUT', '300'))  # 5 minutes default
+    
     # Entity Filtering Configuration
     @property
     def include_units(self) -> List[str]:
         """Units of measurement to include in export."""
-        units = os.getenv('INCLUDE_UNITS', 'kWh,W,°C,°F,kB/s,GB,MB,A,V,hPa,bar,mbar,lux,ppm,dB,rpm')
+        units = os.getenv('INCLUDE_UNITS', 'kWh,W,°C,°F,%,kB/s,GB,MB,A,V,hPa,bar,mbar,lux,ppm,dB,rpm')
         return [unit.strip() for unit in units.split(',')]
     
     @property
