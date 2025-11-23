@@ -69,6 +69,16 @@ class Config:
         return int(os.getenv('BATCH_SIZE', '1000'))
     
     @property
+    def metadata_batch_size(self) -> int:
+        """Number of metadata records to process in each batch."""
+        return int(os.getenv('METADATA_BATCH_SIZE', '5000'))
+    
+    @property
+    def use_latest_metadata_only(self) -> bool:
+        """Use only latest metadata record per entity (fast mode)."""
+        return os.getenv('USE_LATEST_METADATA_ONLY', 'true').lower() == 'true'
+    
+    @property
     def progress_interval(self) -> int:
         """Interval for progress reporting (number of batches)."""
         return int(os.getenv('PROGRESS_INTERVAL', '10'))
@@ -194,6 +204,8 @@ class Config:
         print(f"  Recent Bucket: {self.influx_bucket_recent}")
         print(f"  Historical Bucket: {self.influx_bucket_historical}")
         print(f"  Batch Size: {self.batch_size}")
+        print(f"  Metadata Batch Size: {self.metadata_batch_size}")
+        print(f"  Use Latest Metadata Only: {self.use_latest_metadata_only}")
         print(f"  Resume Enabled: {self.resume_enabled}")
         print(f"  Include Units: {', '.join(self.include_units)}")
         print(f"  Log Level: {self.log_level}")

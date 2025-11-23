@@ -149,7 +149,7 @@ def analyze_entities(config_file, verbose):
     """Analyze Home Assistant entities and show filtering results."""
     
     # Use global config, but allow override
-    current_config = config
+    current_config = config_module.config
     
     if config_file:
         if not Path(config_file).exists():
@@ -169,8 +169,40 @@ def analyze_entities(config_file, verbose):
         click.echo("HOME ASSISTANT ENTITY ANALYSIS")
         click.echo("=" * 60)
         
-        # Get all entities
-        metadata_list = db.get_statistics_metadata()
+        if current_config.use_latest_metadata_only:
+            click.echo("Using fast mode: latest metadata only per entity...")
+            
+            # Fast mode: get latest metadata per entity
+            metadata_list = db.get_statistics_metadata_latest_only()
+            click.echo(f"Loaded {len(metadata_list):,} latest metadata records")
+            
+        else:
+            click.echo("Using complete mode: streaming all metadata records...")
+            
+            # Get fast metadata count for analysis
+            total_count = db.get_statistics_metadata_count()
+            click.echo(f"Total metadata records: {total_count:,}")
+            
+            # Stream metadata for analysis
+            metadata_list = []
+            batch_count = 0
+            total_loaded = 0
+            
+            import time
+            
+            click.echo(f"Processing {total_count:,} metadata records in batches of {current_config.metadata_batch_size:,}")
+            
+            for batch in db.iter_statistics_metadata():
+                batch_start_time = time.time()
+                metadata_list.extend(batch)
+                batch_count += 1
+                total_loaded += len(batch)
+                
+                # Progress reporting (matching export format)
+                if batch_count % current_config.progress_interval == 0:
+                    batch_time = time.time() - batch_start_time
+                    rate = len(batch) / batch_time if batch_time > 0 else 0
+                    click.echo(f"  Batch {batch_count}: {len(batch)} metadata records processed ({rate:.0f} rec/sec)")
         
         if not metadata_list:
             click.echo("No entities found in the database.")
@@ -179,8 +211,8 @@ def analyze_entities(config_file, verbose):
         # Filter entities
         filtered_entities, summary_stats = entity_filter.filter_entities(metadata_list)
         
-        # Print detailed summary
-        entity_filter.print_filter_summary(filtered_entities, summary_stats)
+        # Print brief summary only
+        click.echo(f"\n✓ Filtering completed: {summary_stats['included_entities']}/{summary_stats['total_entities']} entities selected ({summary_stats['inclusion_rate']:.1f}%)")
         
         # Show unit breakdown
         if verbose:

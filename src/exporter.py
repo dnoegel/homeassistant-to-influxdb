@@ -200,22 +200,69 @@ class StatisticsExporter:
         return True
     
     def _load_and_filter_entities(self, filter_pattern: Optional[str]) -> List[FilteredEntity]:
-        """Load and filter entities for export."""
-        print("\nLoading entities...")
+        """Load and filter entities using streaming approach."""
         
-        # Get metadata
-        metadata_list = db.get_statistics_metadata()
-        print(f"Loaded {len(metadata_list)} total entities")
+        if config.use_latest_metadata_only:
+            print("\nUsing fast mode: latest metadata only per entity...")
+            
+            # Fast mode: get latest metadata per entity
+            metadata_list = db.get_statistics_metadata_latest_only()
+            print(f"Loaded {len(metadata_list):,} latest metadata records")
+            
+            # Apply filtering
+            entities, filter_stats = entity_filter.filter_entities(metadata_list)
+            
+        else:
+            print("\nUsing complete mode: streaming all metadata records...")
+            
+            # Get fast count for progress tracking
+            total_metadata_count = db.get_statistics_metadata_count()
+            print(f"Total metadata records: {total_metadata_count:,}")
+            
+            # Stream and filter metadata in batches
+            entities = []
+            total_loaded = 0
+            batch_count = 0
+            filter_stats = None
+            
+            print(f"Processing {total_metadata_count:,} metadata records in batches of {config.metadata_batch_size:,}")
+            
+            for metadata_batch in db.iter_statistics_metadata():
+                batch_start_time = time.time()
+                batch_count += 1
+                total_loaded += len(metadata_batch)
+                
+                # Temporarily suppress entity filter logging
+                filter_logger = logging.getLogger('src.entity_filter')
+                original_level = filter_logger.level
+                filter_logger.setLevel(logging.WARNING)
+                
+                try:
+                    # Apply filtering to this batch
+                    batch_entities, batch_stats = entity_filter.filter_entities(metadata_batch)
+                    entities.extend(batch_entities)
+                finally:
+                    # Restore original log level
+                    filter_logger.setLevel(original_level)
+                
+                # Update cumulative stats (use last batch stats as template)
+                filter_stats = batch_stats
+                
+                # Progress reporting (matching statistics export format)
+                if batch_count % config.progress_interval == 0:
+                    batch_time = time.time() - batch_start_time
+                    rate = len(metadata_batch) / batch_time if batch_time > 0 else 0
+                    print(f"  Batch {batch_count}: {len(metadata_batch)} metadata records processed "
+                          f"({rate:.0f} rec/sec, {len(batch_entities)} filtered)")
+            
+            print(f"\n✓ Streaming completed: {total_loaded:,} metadata records processed")
         
-        # Apply filtering
-        entities, filter_stats = entity_filter.filter_entities(metadata_list)
+        print(f"✓ Total filtered entities: {len(entities):,}")
         
         # Apply additional pattern filter if specified
         if filter_pattern:
             entities = [e for e in entities if filter_pattern.lower() in e.metadata.statistic_id.lower()]
             print(f"Applied pattern filter '{filter_pattern}': {len(entities)} entities remaining")
-        
-        entity_filter.print_filter_summary(entities, filter_stats)
         
         return entities
     

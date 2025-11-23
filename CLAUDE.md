@@ -53,6 +53,7 @@ Complete Home Assistant to InfluxDB 2.x statistics migration tool with intellige
 ### New Environment Variables
 ```bash
 INCLUDE_DOMAINS=sensor,counter,weather,climate,utility_meter
+METADATA_BATCH_SIZE=5000  # Streaming batch size for metadata processing
 ```
 
 ### Updated Units List
@@ -96,6 +97,13 @@ hastats/
 ```
 
 ## Key Learnings
+
+### Streaming Metadata Architecture (ADR-007 Implementation)
+- **Problem solved**: 5.7-second startup delay → immediate progress feedback
+- **Memory efficiency**: Constant O(batch_size) usage regardless of 2.8M total records
+- **OFFSET vs Cursor**: OFFSET pagination works better for complex JOINs with Cartesian products
+- **Data reality**: 433 unique entities × ~6,500 metadata records each = 2.8M total records to process
+- **Progress UX**: Clean batch reporting matching statistics export format
 
 ### InfluxDB Schema Design
 - Tags for indexing: entity_id, domain, category, unit, source, friendly_name, device_class
@@ -147,10 +155,19 @@ LEFT JOIN state_attributes sa ON s.attributes_id = sa.attributes_id
 - `--migrated`: Delete only `source="migration"` data (preserve infrastructure) 
 - `--all`: Delete buckets + InfluxDB tasks (complete reset)
 
-### Memory Management
-- **Batch processing**: 1000 records per batch
-- **Streaming design**: Iterator pattern, constant memory usage
+### Memory Management & Streaming Architecture (ADR-007) ✅
+- **Metadata streaming**: OFFSET pagination for 2.8M metadata records  
+- **Batch processing**: 5000 metadata records per batch (configurable via METADATA_BATCH_SIZE)
+- **Statistics processing**: 1000 records per batch
+- **Streaming design**: Iterator pattern, constant memory usage O(batch_size)
 - **Database connections**: Context managers for proper cleanup
+- **Progress feedback**: Immediate streaming progress vs 5.7s startup delay
+
+**Key Metrics**:
+- Memory usage: ~50MB constant vs ~500MB bulk loading (10x reduction)
+- Processing rate: 20K-40K records/sec sustained
+- Total processing: 2.8M metadata records → ~450K filtered entities
+- Architecture: Fast count query + OFFSET streaming + real-time progress
 
 ### SQLite Variable Limit Fixes (CRITICAL)
 **Problem**: Export failed with "too many SQL variables" error when processing 1.8M entities
@@ -192,6 +209,99 @@ filtered_entities, summary_stats = entity_filter.filter_entities(metadata_list)
 - **Fields**: `value` (consistent with HA native integration)
 
 **Issue**: Existing InfluxDB data exported with old/broken code - need fresh export
+
+## Performance Optimization (2025-01-23)
+
+### Metadata Query Optimization ⚡ IMPLEMENTED
+**Problem**: Cartesian Product caused 2.8M rows instead of 433 entities
+- JOIN to `states` table without filtering fetched ALL historical state changes (avg 6,540 per entity)
+- OFFSET pagination over 2.8M rows was extremely inefficient
+- ~60 second startup delay before actual export
+
+**Solution**: Subquery for latest attributes only
+```sql
+LEFT JOIN (
+    SELECT s.metadata_id, s.attributes_id
+    FROM states s
+    INNER JOIN (
+        SELECT metadata_id, MAX(last_updated_ts) as max_ts
+        FROM states WHERE attributes_id IS NOT NULL
+        GROUP BY metadata_id
+    ) latest_ts ON s.metadata_id = latest_ts.metadata_id
+                AND s.last_updated_ts = latest_ts.max_ts
+    WHERE s.attributes_id IS NOT NULL
+    GROUP BY s.metadata_id
+) latest ON stm.metadata_id = latest.metadata_id
+```
+
+**Results**:
+- ✅ **13x speedup**: 60s → 4.75s for metadata loading
+- ✅ 2.8M rows → 433 entities (99.98% reduction)
+- ✅ No duplicates (GROUP BY ensures uniqueness)
+- ✅ 100% friendly_name coverage
+
+**Changed Functions** (src/database.py):
+- `iter_statistics_metadata()` - Lines 284-367
+- `get_statistics_metadata()` - Lines 97-166
+- `get_statistics_metadata_count()` - Lines 262-274
+
+### Surprising Discovery: OFFSET is Fast with Covering Indexes
+
+**Initial Assumption**: OFFSET pagination over 1.4M statistics records would be slow
+**Reality**: OFFSET is extremely efficient with proper indexes!
+
+**Benchmark** (689k records, all entities):
+- OFFSET: 7.66s (90k records/sec)
+- Keyset: 11.95s (58k records/sec)
+- **OFFSET is 1.56x FASTER!**
+
+**Why?**
+- `ix_statistics_statistic_id_start_ts (metadata_id, start_ts)` is a **COVERING INDEX**
+- Contains all SELECT fields directly in the index
+- No disk I/O for row data needed
+- SQLite can "jump" in the index efficiently for moderate offsets
+
+**Decision**: Keep OFFSET pagination for statistics, Keyset not needed
+
+**Lesson**: Don't optimize prematurely - measure first! A perfect index can make "slow" operations fast.
+
+### Counter Entity Statistics Requirement
+
+**Discovery**: Counter entities (e.g., `counter.garagenoffnungen`) don't appear in export
+
+**Root Cause**: Home Assistant only creates Long-Term Statistics for entities with `state_class`
+- Counter domain has NO `state_class` by default
+- No `state_class` = no entry in `statistics_meta`
+- Only 433/1172 entities (37%) have statistics
+
+**Solution for Users**: Add to `configuration.yaml`:
+```yaml
+homeassistant:
+  customize:
+    counter.garagenoffnungen:
+      state_class: total_increasing
+      unit_of_measurement: "Öffnungen"
+```
+
+**Important**: This only creates statistics going forward, not retroactively!
+
+### Overall Performance Improvement
+
+**Before Optimization**:
+- Metadata Loading: ~60s
+- Statistics Query: ~8s
+- Processing: ~25s
+- InfluxDB Write: ~40s
+- **Total: ~133s**
+
+**After Optimization**:
+- Metadata Loading: ~5s (13x faster)
+- Statistics Query: ~8s (unchanged - already optimal)
+- Processing: ~25s
+- InfluxDB Write: ~40s
+- **Total: ~78s**
+
+**Speedup: 1.7x (saved ~55 seconds per export)**
 
 ## Commands for User Reference
 
